@@ -10,10 +10,10 @@
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -50,7 +50,7 @@ CONFIGURATAION="Release"
 EXPORT_METHOD="ad-hoc"
 
 function checkEnvironment() {
-    echo "checkEnvironment...."
+    # echo "checkEnvironment...."
     if [[ ! `uname` -eq "Darwin" ]]; then
         echo "此脚本仅支持 macOS 系统"
         exit 0
@@ -58,7 +58,7 @@ function checkEnvironment() {
 }
 
 function checkTools() {
-    echo "checkTools...."
+    # echo "checkTools...."
     hash jq
     if [[ $? != 0 ]]; then
         echo "请先安装 jq 命令行工具, 因为此脚本需要使用 jq 命令行工具"
@@ -75,7 +75,7 @@ function checkTools() {
 }
 
 function checkProjectPath() {
-    echo "checkProjectPath...."
+    # echo "checkProjectPath...."
     PROJECT_NAME=`ls | grep ".xcodeproj"`
     if [[ ${#PROJECT_NAME} -eq 0 ]]; then
         echo "请将此脚本放置 工程 xcodeproj 文件同级目录"
@@ -84,7 +84,7 @@ function checkProjectPath() {
 }
 
 function checkWorkspacePath() {
-    echo "checkWorkspacePath...."
+    # echo "checkWorkspacePath...."
     WORKSPACE_NAME=`ls | grep ".xcworkspace"`
     if [[ ! ${#WORKSPACE_NAME} -eq 0 ]]; then
         IS_WORKSPACE=1
@@ -174,12 +174,13 @@ function generate_archive() {
 # $2 archive path
 # $3 export path
 # $4 export plist path
-# $5 export ipa path
+# $5 ipa name
+# $6 export ipa path
 function generate_ipa() {
     # generate ipa
     makeTarget=".PHONY: generate-$1"
     makeTarget=${makeTarget//\"/""}
-    buildLine="generate-$1: archive-$1 generate_${1}_export_plist"
+    buildLine="generate-$1: archive-$1 generate-${1}-export-plist"
     buildLine=${buildLine//\"/""}
     echo $makeTarget >> $MAKE_FILE
     echo $buildLine >> $MAKE_FILE
@@ -192,9 +193,8 @@ function generate_ipa() {
         # command=${command//\"/""}
         echo $command >> $MAKE_FILE
     fi
-    ipa_name=`ls $3 | grep ".ipa"`
     echo '\t@echo "cpoy ipa file ......."' >> $MAKE_FILE
-    echo "\t@cp -r $3/$ipa_name $5 \n\n" >> $MAKE_FILE
+    echo "\t@cp -r $3/\`ls /var/tmp/BuildWorkspace/Export/TDXDLoginModule-Example-Release | grep \".ipa\"\` $6 \n\n" >> $MAKE_FILE
 }
 
 # $1 scheme
@@ -204,12 +204,12 @@ function generate_ipa() {
 # $5 method
 function generate_export_plist() {
     # team id
-    echo "generate_export_plist ..."
+    # echo "generate_export_plist ..."
     PLIST_PATH=$CONFIG_PATH/$1-export.plist
 
-    makeTarget=".PHONY: generate_${1}_export_plist"
+    makeTarget=".PHONY: generate-${1}-export-plist"
     makeTarget=${makeTarget//\"/""}
-    buildLine="generate_${1}_export_plist:"
+    buildLine="generate-${1}-export-plist:"
     buildLine=${buildLine//\"/""}
     echo $makeTarget >> $MAKE_FILE
     echo $buildLine >> $MAKE_FILE
@@ -245,7 +245,7 @@ function generate_clean() {
 }
 
 function forEcahSchemes() {
-    echo "forEcahSchemes...."
+    # echo "forEcahSchemes...."
     schemes=`xcodebuild -list -project ${PROJECT_NAME} -json | jq ".project.schemes"`
     idx=0
     flag=1
@@ -273,10 +273,7 @@ function forEcahSchemes() {
 
         MACH_O_TYPE=`grep -w "MACH_O_TYPE = mh_execute" ${BUILD_SETTING_FILE}`
         # app mh_execute, 静态库 staticlib, 动态库 mh_dylib
-        echo $scheme
-        echo "$MACH_O_TYPE"
         if [[ -z $MACH_O_TYPE ]]; then
-            echo "skip"
             continue
         fi
 
@@ -290,13 +287,16 @@ function forEcahSchemes() {
         PROVISIONING_PROFILE_SPECIFIER=`grep -w "PROVISIONING_PROFILE_SPECIFIER" ${BUILD_SETTING_FILE}`
         PROVISIONING_PROFILE_SPECIFIER=${PROVISIONING_PROFILE_SPECIFIER//"PROVISIONING_PROFILE_SPECIFIER = "/""}
 
-        echo "generate ...."
+        PRODUCT_NAME=`grep -w "PRODUCT_NAME" ${BUILD_SETTING_FILE}`
+        PRODUCT_NAME=${PRODUCT_NAME//"PRODUCT_NAME = "/""}
+
+        # echo "generate ...."
         # generate_build $scheme $CONFIGURATAION
         generate_prepare
         generate_archive $scheme ${ARCHIVE_PATH}/${scheme}-$CONFIGURATAION ${BUILD_PATH} $CONFIGURATAION
         generate_export_plist $scheme $BUNDLE_ID $DEVELOPMENT_TEAM_ID $PROVISIONING_PROFILE_SPECIFIER $EXPORT_METHOD
-        generate_ipa $scheme  ${ARCHIVE_PATH}/${scheme}-$CONFIGURATAION.xcarchive "$EXPORT_PATH/$scheme-$CONFIGURATAION" "$CONFIG_PATH/$scheme-export.plist" $PWD
-        generate_clean
+        generate_ipa $scheme  ${ARCHIVE_PATH}/${scheme}-$CONFIGURATAION.xcarchive "$EXPORT_PATH/$scheme-$CONFIGURATAION" "$CONFIG_PATH/$scheme-export.plist" $PRODUCT_NAME $PWD
+        echo "使用 make generate-$scheme 命令生成 $PRODUCT_NAME.ipa"
     done
 
     if [[ $flag -eq 0 && $idx -eq 0 ]]; then
@@ -304,6 +304,7 @@ function forEcahSchemes() {
         exit 0
     fi
 
+    generate_clean
 }
 
 checkEnvironment
